@@ -1,0 +1,15 @@
+[project]
+name = "kagi-search-tool"
+version = "0.1.0"
+description = "MCP server exposing Kagi Search and Summarizer APIs for Claude Code"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp[cli]",
+    "kagiapi",
+    "beautifulsoup4",
+    "httpx",
+]
+
+[project.scripts]
+kagi-mcp = "server:main"
