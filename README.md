@@ -6,6 +6,31 @@ MCP server exposing Kagi Search and Summarizer APIs for Claude clients.
 
 - **search** - Search the web using Kagi's curated, SEO-resistant index
 - **summarize** - Summarize URLs or text (supports PDFs, YouTube, audio)
+- **web_fetch_js** - Fetch JavaScript-rendered web content with full browser emulation
+
+### web_fetch_js Capabilities
+
+Renders pages using a headless WebKit browser, enabling access to content that requires JavaScript execution:
+
+- **JS-heavy sites** - SPAs, React/Vue/Angular apps, dynamically loaded content
+- **Live app frameworks** - Automatic detection of Gradio and Streamlit apps with accelerated loading (avoids networkidle timeouts)
+- **Embedded iframes** - Extracts content from iframes when main page is sparse (e.g., HuggingFace Spaces)
+- **Interactive elements** - Returns annotated selectors for ReAct-style interaction chains
+
+**ReAct interaction example:**
+```python
+# First call: fetch page, observe interactive elements
+result = web_fetch_js(url="https://example.com/app")
+
+# Follow-up: interact with discovered elements
+result = web_fetch_js(
+    url="https://example.com/app",
+    actions=[
+        {"action": "fill", "selector": "input[name=query]", "value": "search term"},
+        {"action": "click", "selector": "button#submit"}
+    ]
+)
+```
 
 ## Setup
 
@@ -23,6 +48,20 @@ echo "your-api-key" > ~/.config/kagi/api_key
 ```
 
 Get your API key at https://kagi.com/settings?p=api
+
+### Browser Engine (for web_fetch_js)
+
+The `web_fetch_js` tool requires a Playwright browser engine. Install one of the following:
+
+```bash
+# WebKit (recommended - lightweight, used by default)
+playwright install webkit
+
+# Chromium (alternative - larger download, broader compatibility)
+playwright install chromium
+```
+
+Note: The server currently uses WebKit. To use Chromium instead, modify the `browser = await p.webkit.launch()` line in `server.py` to `browser = await p.chromium.launch()`.
 
 ## Configuration
 
