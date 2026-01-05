@@ -47,6 +47,55 @@ LIVE_APP_MARKERS = [
     {"detect": "[data-testid='stAppViewContainer']", "ready": ".stApp", "name": "Streamlit"},
 ]
 
+
+def _detect_playwright_browser(playwright) -> tuple[str, str]:
+    """Detect available Playwright browser with graceful fallback.
+
+    Uses Playwright's own executable_path API to check browser availability.
+
+    Priority:
+    1. PLAYWRIGHT_BROWSER env var override (webkit, chromium, firefox)
+    2. If only one browser installed, use it
+    3. If multiple available, prefer webkit (specialized) over chromium (ubiquitous)
+    4. Error if no browser found
+
+    Args:
+        playwright: The Playwright instance from async_playwright()
+
+    Returns:
+        Tuple of (browser_type, display_name) e.g. ("webkit", "WebKit")
+    """
+    browser_info = {
+        "webkit": ("WebKit", playwright.webkit),
+        "chromium": ("Chromium", playwright.chromium),
+        "firefox": ("Firefox", playwright.firefox),
+    }
+
+    # Check for override
+    override = os.environ.get("PLAYWRIGHT_BROWSER", "").lower()
+    if override in browser_info:
+        return (override, browser_info[override][0])
+
+    # Detect installed browsers by checking executable paths
+    available = []
+    for name, (display, browser_type) in browser_info.items():
+        if Path(browser_type.executable_path).exists():
+            available.append(name)
+
+    if not available:
+        return ("none", "None")
+
+    if len(available) == 1:
+        return (available[0], browser_info[available[0]][0])
+
+    # Multiple browsers available - prefer webkit (specialized), then chromium (ubiquitous)
+    for preferred in ("webkit", "chromium", "firefox"):
+        if preferred in available:
+            return (preferred, browser_info[preferred][0])
+
+    return ("none", "None")
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -482,7 +531,19 @@ async def web_fetch_js(
 
     try:
         async with async_playwright() as p:
-            browser = await p.webkit.launch(headless=True)
+            # Detect available browser engine
+            browser_type, browser_name = _detect_playwright_browser(p)
+            if browser_type == "none":
+                return (
+                    "Error: No Playwright browser installed. Run one of:\n"
+                    "  playwright install webkit\n"
+                    "  playwright install chromium\n\n"
+                    "Or set PLAYWRIGHT_BROWSER env var to specify a browser."
+                )
+
+            # Launch detected/configured browser
+            browser_launcher = getattr(p, browser_type)
+            browser = await browser_launcher.launch(headless=True)
             context = await browser.new_context(
                 user_agent=_FETCH_HEADERS["User-Agent"],
                 viewport={"width": 1280, "height": 720}
@@ -608,10 +669,12 @@ async def web_fetch_js(
     output_parts = [f"# {title}", f"\nSource: {url}"]
 
     # Add detection hints
+    hints = [f"Browser: {browser_name}"]
     if detected_app:
-        output_parts.append(f"[Detected: {detected_app} app - used accelerated loading]")
+        hints.append(f"{detected_app} app detected - accelerated loading")
     if iframe_source:
-        output_parts.append(f"[Extracted from embedded iframe: {iframe_source}]")
+        hints.append(f"Content from iframe: {iframe_source}")
+    output_parts.append(f"[{' | '.join(hints)}]")
 
     output_parts.extend(["\n", "---\n", markdown_content])
 

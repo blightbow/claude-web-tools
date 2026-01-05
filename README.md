@@ -51,17 +51,28 @@ Get your API key at https://kagi.com/settings?p=api
 
 ### Browser Engine (for web_fetch_js)
 
-The `web_fetch_js` tool requires a Playwright browser engine. Install one of the following:
+The `web_fetch_js` tool requires a Playwright browser engine. Install one or both:
 
 ```bash
-# WebKit (recommended - lightweight, used by default)
+# WebKit (lightweight, preferred when available)
 playwright install webkit
 
-# Chromium (alternative - larger download, broader compatibility)
+# Chromium (broader compatibility, larger download)
 playwright install chromium
 ```
 
-Note: The server currently uses WebKit. To use Chromium instead, modify the `browser = await p.webkit.launch()` line in `server.py` to `browser = await p.chromium.launch()`.
+**Browser selection logic:**
+1. If `PLAYWRIGHT_BROWSER` env var is set, use that browser
+2. If only one browser is installed, use it
+3. If multiple browsers available, prefer WebKit (specialized) over Chromium (ubiquitous)
+
+**Override example:**
+```bash
+# Force Chromium even if WebKit is available
+export PLAYWRIGHT_BROWSER=chromium
+```
+
+The active browser is shown in tool output: `[Browser: WebKit | ...]`
 
 ## Configuration
 
