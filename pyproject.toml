@@ -9,6 +9,8 @@ dependencies = [
     "kagiapi",
     "beautifulsoup4",
     "httpx",
+    "playwright",
+    "markdownify",
 ]
 
 [project.scripts]

@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import re
@@ -12,7 +13,9 @@ from xml.sax.saxutils import escape as xml_escape
 import httpx
 from bs4 import BeautifulSoup
 from kagiapi import KagiClient
+from markdownify import markdownify as md
 from mcp.server.fastmcp import FastMCP
+from playwright.async_api import async_playwright
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -46,6 +49,42 @@ Use this when WebFetch fails due to agent blacklisting or access restrictions.""
 
 Supports web pages, PDFs, YouTube videos, audio files, and documents.
 Use this when web_fetch fails due to agent blacklisting or access restrictions.""",
+    },
+    "web_fetch_js": {
+        "code": """Fetch and interact with web content using a headless WebKit browser.
+
+Use this when WebFetch returns incomplete content from JavaScript-heavy sites
+(SPAs, React/Vue/Angular apps, dynamically loaded content).
+
+Supports ReAct-style interaction chains:
+1. First call: Fetch page, observe available interactive elements
+2. Subsequent calls: Use 'actions' parameter to interact (click, fill, select)
+3. Extract updated content after interactions
+
+Actions format (JSON array of objects):
+- {"action": "click", "selector": "button#submit"}
+- {"action": "fill", "selector": "input[name=query]", "value": "search term"}
+- {"action": "select", "selector": "select#region", "value": "us-east"}
+- {"action": "wait", "selector": ".results-loaded"}
+
+Returns markdown with interactive elements annotated for follow-up actions.""",
+        "desktop": """Fetch and interact with web content using a headless WebKit browser.
+
+Use this when web_fetch returns incomplete content from JavaScript-heavy sites
+(SPAs, React/Vue/Angular apps, dynamically loaded content).
+
+Supports ReAct-style interaction chains:
+1. First call: Fetch page, observe available interactive elements
+2. Subsequent calls: Use 'actions' parameter to interact (click, fill, select)
+3. Extract updated content after interactions
+
+Actions format (JSON array of objects):
+- {"action": "click", "selector": "button#submit"}
+- {"action": "fill", "selector": "input[name=query]", "value": "search term"}
+- {"action": "select", "selector": "select#region", "value": "us-east"}
+- {"action": "wait", "selector": ".results-loaded"}
+
+Returns markdown with interactive elements annotated for follow-up actions.""",
     },
     # web_fetch_direct is desktop-only (registered conditionally in main)
 }
@@ -263,6 +302,249 @@ def _build_document_xml(
     lines.append("</document>")
 
     return "\n".join(lines)
+
+
+# Helper functions for web_fetch_js interactive element extraction
+async def _get_unique_selector(element) -> str:
+    """Generate a unique CSS selector for an element."""
+    # Try id first
+    elem_id = await element.get_attribute("id")
+    if elem_id:
+        return f"#{elem_id}"
+
+    # Try name attribute
+    name = await element.get_attribute("name")
+    tag = await element.evaluate("el => el.tagName.toLowerCase()")
+    if name:
+        return f"{tag}[name='{name}']"
+
+    # Fall back to data-testid or other common attributes
+    testid = await element.get_attribute("data-testid")
+    if testid:
+        return f"[data-testid='{testid}']"
+
+    # Last resort: tag + class combination
+    classes = await element.get_attribute("class")
+    if classes:
+        primary_class = classes.split()[0]
+        return f"{tag}.{primary_class}"
+
+    return tag
+
+
+async def _get_label_for_element(page, element) -> Optional[str]:
+    """Find associated label for form element."""
+    elem_id = await element.get_attribute("id")
+    if elem_id:
+        label = await page.query_selector(f"label[for='{elem_id}']")
+        if label:
+            return await label.inner_text()
+    return None
+
+
+async def _extract_interactive_elements(page, max_elements: int = 25) -> tuple[list[dict], bool]:
+    """Extract interactive elements from page for ReAct chaining.
+
+    Returns:
+        Tuple of (elements list, was_truncated bool)
+    """
+    elements = []
+
+    # Extract select/dropdown elements
+    selects = await page.query_selector_all("select")
+    for sel in selects:
+        if not await sel.is_visible():
+            continue
+        selector = await _get_unique_selector(sel)
+        options = await sel.evaluate(
+            "el => Array.from(el.options).map(o => o.text || o.value)"
+        )
+        label = await _get_label_for_element(page, sel)
+        elements.append({
+            "type": "select",
+            "selector": selector,
+            "options": options,
+            "label": label
+        })
+
+    # Extract input fields
+    inputs = await page.query_selector_all("input:not([type=hidden])")
+    for inp in inputs:
+        if not await inp.is_visible():
+            continue
+        input_type = await inp.get_attribute("type") or "text"
+        if input_type in ("text", "search", "email", "number", "tel", "url"):
+            selector = await _get_unique_selector(inp)
+            placeholder = await inp.get_attribute("placeholder")
+            label = await _get_label_for_element(page, inp)
+            elements.append({
+                "type": f"input[{input_type}]",
+                "selector": selector,
+                "placeholder": placeholder,
+                "label": label
+            })
+
+    # Extract buttons
+    buttons = await page.query_selector_all("button, input[type=submit]")
+    for btn in buttons:
+        if not await btn.is_visible():
+            continue
+        try:
+            text = await btn.inner_text()
+        except Exception:
+            text = await btn.get_attribute("value")
+        if text and text.strip():
+            selector = await _get_unique_selector(btn)
+            elements.append({
+                "type": "button",
+                "selector": selector,
+                "label": text.strip()[:50]
+            })
+
+    # Extract navigation links (for tab/menu navigation)
+    nav_links = await page.query_selector_all("nav a, [role=navigation] a, .nav a, .tabs a, .menu a")
+    for link in nav_links:
+        if not await link.is_visible():
+            continue
+        try:
+            text = await link.inner_text()
+            href = await link.get_attribute("href")
+            if text and text.strip() and href:
+                selector = await _get_unique_selector(link)
+                elements.append({
+                    "type": "link",
+                    "selector": selector,
+                    "label": text.strip()[:50],
+                    "href": href
+                })
+        except Exception:
+            pass
+
+    # Check if we hit the limit
+    was_truncated = len(elements) > max_elements
+    return elements[:max_elements], was_truncated
+
+
+@mcp.tool()
+async def web_fetch_js(
+    url: str,
+    actions: Optional[list] = None,
+    wait_for: Optional[str] = None,
+    timeout: int = 30000,
+    include_interactive: bool = True,
+    max_elements: int = 25,
+    max_tokens: Optional[int] = None
+) -> str:
+    """Fetch web content with full JavaScript rendering and optional interactions.
+
+    Args:
+        url: The URL to fetch
+        actions: List of interaction actions to perform before extraction.
+                 Each action: {"action": "click"|"fill"|"select"|"wait",
+                              "selector": "CSS selector", "value": "optional value"}
+        wait_for: CSS selector to wait for before extracting content
+        timeout: Max wait time in milliseconds (default 30000)
+        include_interactive: If True, annotate interactive elements in output (default True)
+        max_elements: Maximum number of interactive elements to extract (default 25)
+        max_tokens: Optional limit on output length (approximate token count)
+    """
+    try:
+        async with async_playwright() as p:
+            browser = await p.webkit.launch(headless=True)
+            context = await browser.new_context(
+                user_agent=_FETCH_HEADERS["User-Agent"],
+                viewport={"width": 1280, "height": 720}
+            )
+            page = await context.new_page()
+
+            # Navigate and wait for network idle
+            await page.goto(url, wait_until="networkidle", timeout=timeout)
+
+            # Execute actions if provided
+            if actions:
+                for act in actions:
+                    action_type = act.get("action")
+                    selector = act.get("selector")
+                    value = act.get("value", "")
+
+                    if action_type == "click":
+                        await page.click(selector, timeout=timeout)
+                    elif action_type == "fill":
+                        await page.fill(selector, value, timeout=timeout)
+                    elif action_type == "select":
+                        await page.select_option(selector, value, timeout=timeout)
+                    elif action_type == "wait":
+                        await page.wait_for_selector(selector, timeout=timeout)
+
+                    # Brief pause for UI to update
+                    await page.wait_for_load_state("networkidle", timeout=timeout)
+
+            # Optional: wait for specific element
+            if wait_for:
+                await page.wait_for_selector(wait_for, timeout=timeout)
+
+            # Extract title
+            title = await page.title() or "Untitled"
+
+            # Get rendered HTML
+            html = await page.content()
+
+            # Extract interactive elements for ReAct chaining
+            interactive_elements = []
+            elements_truncated = False
+            if include_interactive:
+                interactive_elements, elements_truncated = await _extract_interactive_elements(
+                    page, max_elements
+                )
+
+            await browser.close()
+
+    except Exception as e:
+        return f"Error: Failed to render page - {type(e).__name__}: {e}"
+
+    # Parse and clean HTML
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Remove noise elements
+    for tag in soup(["script", "style", "nav", "header", "footer", "aside", "noscript"]):
+        tag.decompose()
+
+    # Find main content
+    main = soup.find("main") or soup.find("article") or soup.find("body") or soup
+
+    # Convert to markdown
+    markdown_content = md(str(main), heading_style="ATX", strip=["a"])
+    markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content).strip()
+
+    # Apply token limit if specified
+    if max_tokens:
+        char_limit = max_tokens * 4
+        if len(markdown_content) > char_limit:
+            markdown_content = markdown_content[:char_limit] + "\n\n[content truncated]"
+
+    # Build output with interactive elements section
+    output_parts = [f"# {title}", f"\nSource: {url}\n", "---\n", markdown_content]
+
+    if interactive_elements:
+        output_parts.append("\n---\n")
+        output_parts.append("## Interactive Elements (for follow-up actions)\n")
+        for elem in interactive_elements:
+            output_parts.append(f"- **{elem['type']}**: `{elem['selector']}`")
+            if elem.get('options'):
+                output_parts.append(f"  Options: {', '.join(elem['options'][:10])}")
+            if elem.get('placeholder'):
+                output_parts.append(f"  Placeholder: {elem['placeholder']}")
+            if elem.get('label'):
+                output_parts.append(f"  Label: {elem['label']}")
+            if elem.get('href'):
+                output_parts.append(f"  Href: {elem['href']}")
+        if elements_truncated:
+            output_parts.append(
+                f"\n*[List truncated to {max_elements} elements. "
+                "Use max_elements parameter to increase limit.]*"
+            )
+
+    return "\n".join(output_parts)
 
 
 # Desktop-only tool - registered conditionally in main()
