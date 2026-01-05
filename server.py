@@ -39,6 +39,14 @@ def md(html, **options):
     """Convert HTML to markdown using custom converter."""
     return TextOnlyConverter(**options).convert(html)
 
+
+# DOM-based detection for apps with persistent connections (WebSocket/SSE)
+# These apps never reach "networkidle" state, so we detect and use accelerated loading
+LIVE_APP_MARKERS = [
+    {"detect": "gradio-app, .gradio-container", "ready": ".gradio-container", "name": "Gradio"},
+    {"detect": "[data-testid='stAppViewContainer']", "ready": ".stApp", "name": "Streamlit"},
+]
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -470,6 +478,8 @@ async def web_fetch_js(
         max_elements: Maximum number of interactive elements to extract (default 25)
         max_tokens: Optional limit on output length (approximate token count)
     """
+    detected_app = None  # Track if we detected a live app framework
+
     try:
         async with async_playwright() as p:
             browser = await p.webkit.launch(headless=True)
@@ -479,8 +489,25 @@ async def web_fetch_js(
             )
             page = await context.new_page()
 
-            # Navigate and wait for network idle
-            await page.goto(url, wait_until="networkidle", timeout=timeout)
+            # Wait for load event - gives JS time to create framework elements
+            await page.goto(url, wait_until="load", timeout=timeout)
+
+            # Check for live app frameworks that use persistent connections
+            for marker in LIVE_APP_MARKERS:
+                element = await page.query_selector(marker["detect"])
+                if element:
+                    detected_app = marker["name"]
+                    # Wait for app-specific ready selector instead of networkidle
+                    await page.wait_for_selector(marker["ready"], timeout=timeout)
+                    break
+
+            # If no live app detected, try networkidle with short timeout
+            # Some sites have persistent connections that prevent networkidle
+            if not detected_app:
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=5000)
+                except Exception:
+                    pass  # Proceed with content extraction anyway
 
             # Execute actions if provided
             if actions:
@@ -499,7 +526,10 @@ async def web_fetch_js(
                         await page.wait_for_selector(selector, timeout=timeout)
 
                     # Brief pause for UI to update
-                    await page.wait_for_load_state("networkidle", timeout=timeout)
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=2000)
+                    except Exception:
+                        pass  # Proceed anyway
 
             # Optional: wait for specific element
             if wait_for:
@@ -508,8 +538,38 @@ async def web_fetch_js(
             # Extract title
             title = await page.title() or "Untitled"
 
-            # Get rendered HTML
+            # Get rendered HTML from main page
             html = await page.content()
+            iframe_source = None  # Track if we extracted from iframe
+
+            # Check if main content is sparse but iframe exists
+            # This handles HuggingFace Spaces, embedded Gradio apps, etc.
+            main_text_length = len(BeautifulSoup(html, "html.parser").get_text(strip=True))
+
+            if main_text_length < 500:  # Sparse main content
+                # Look for content-bearing iframes
+                frames = page.frames
+                for frame in frames:
+                    if frame == page.main_frame:
+                        continue
+                    try:
+                        frame_html = await frame.content()
+                        frame_text_length = len(BeautifulSoup(frame_html, "html.parser").get_text(strip=True))
+
+                        # Use iframe content if it's more substantial
+                        if frame_text_length > main_text_length:
+                            html = frame_html
+                            iframe_source = frame.url
+                            # Re-check for framework markers in iframe
+                            for marker in LIVE_APP_MARKERS:
+                                element = await frame.query_selector(marker["detect"])
+                                if element:
+                                    detected_app = marker["name"]
+                                    break
+                            break
+                    except Exception:
+                        # Cross-origin or other access issue - try next frame
+                        continue
 
             # Extract interactive elements for ReAct chaining
             interactive_elements = []
@@ -545,7 +605,15 @@ async def web_fetch_js(
             markdown_content = markdown_content[:char_limit] + "\n\n[content truncated]"
 
     # Build output with interactive elements section
-    output_parts = [f"# {title}", f"\nSource: {url}\n", "---\n", markdown_content]
+    output_parts = [f"# {title}", f"\nSource: {url}"]
+
+    # Add detection hints
+    if detected_app:
+        output_parts.append(f"[Detected: {detected_app} app - used accelerated loading]")
+    if iframe_source:
+        output_parts.append(f"[Extracted from embedded iframe: {iframe_source}]")
+
+    output_parts.extend(["\n", "---\n", markdown_content])
 
     if interactive_elements:
         output_parts.append("\n---\n")
