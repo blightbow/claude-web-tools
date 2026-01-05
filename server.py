@@ -13,9 +13,31 @@ from xml.sax.saxutils import escape as xml_escape
 import httpx
 from bs4 import BeautifulSoup
 from kagiapi import KagiClient
-from markdownify import markdownify as md
+from markdownify import MarkdownConverter
 from mcp.server.fastmcp import FastMCP
 from playwright.async_api import async_playwright
+
+
+class TextOnlyConverter(MarkdownConverter):
+    """Custom converter that preserves link hrefs but strips non-text content like images."""
+
+    def convert_img(self, el, text, parent_tags):
+        # Images can't render as text - return alt text only if meaningful
+        alt = el.get('alt', '').strip()
+        return f'[Image: {alt}]' if alt else ''
+
+    def convert_a(self, el, text, parent_tags):
+        # If the link only contains an image reference, drop it entirely
+        stripped = text.strip()
+        if stripped.startswith('[Image:') or not stripped:
+            return stripped
+        # Otherwise use default link conversion
+        return super().convert_a(el, text, parent_tags)
+
+
+def md(html, **options):
+    """Convert HTML to markdown using custom converter."""
+    return TextOnlyConverter(**options).convert(html)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -512,8 +534,8 @@ async def web_fetch_js(
     # Find main content
     main = soup.find("main") or soup.find("article") or soup.find("body") or soup
 
-    # Convert to markdown
-    markdown_content = md(str(main), heading_style="ATX", strip=["a"])
+    # Convert to markdown (preserve anchor hrefs for navigation)
+    markdown_content = md(str(main), heading_style="ATX")
     markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content).strip()
 
     # Apply token limit if specified
