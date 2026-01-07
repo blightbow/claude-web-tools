@@ -99,9 +99,16 @@ def _detect_playwright_browser(playwright) -> tuple[str, str]:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP("kagi")
+mcp = FastMCP("claude-web-tools")
 
 CONFIG_PATH = Path.home() / ".config" / "kagi" / "api_key"
+
+# Profile-specific tool names to match Claude client conventions
+# code profile: PascalCase (WebSearch, WebFetch, WebFetchJS)
+# desktop profile: snake_case (web_search, web_fetch, web_fetch_js)
+TOOL_NAMES = {
+    "web_fetch_js": {"code": "WebFetchJS", "desktop": "web_fetch_js"},
+}
 
 # Profile-specific tool descriptions for different Claude clients
 TOOL_DESCRIPTIONS = {
@@ -175,6 +182,9 @@ def apply_profile(profile: str) -> None:
     Note: Uses _tool_manager, a private FastMCP API.
     """
     for tool_name, descriptions in TOOL_DESCRIPTIONS.items():
+        # Skip tools with profile-specific names (registered separately in main)
+        if tool_name in TOOL_NAMES:
+            continue
         tool = mcp._tool_manager.get_tool(tool_name)
         if tool:
             tool.description = descriptions[profile]
@@ -504,7 +514,7 @@ async def _extract_interactive_elements(page, max_elements: int = 25) -> tuple[l
     return elements[:max_elements], was_truncated
 
 
-@mcp.tool()
+# Note: web_fetch_js is registered in main() with profile-specific naming
 async def web_fetch_js(
     url: str,
     actions: Optional[list] = None,
@@ -893,7 +903,7 @@ async def web_fetch_direct(url: str, max_tokens: Optional[int] = None) -> str:
 
 def main():
     """Run the MCP server."""
-    parser = argparse.ArgumentParser(description="Kagi MCP Server")
+    parser = argparse.ArgumentParser(description="Claude Web Tools MCP Server")
     parser.add_argument(
         "--profile",
         choices=["code", "desktop"],
@@ -901,6 +911,11 @@ def main():
         help="Target client profile (default: code)",
     )
     args = parser.parse_args()
+
+    # Register web_fetch_js with profile-specific name
+    tool_name = TOOL_NAMES["web_fetch_js"][args.profile]
+    tool_desc = TOOL_DESCRIPTIONS["web_fetch_js"][args.profile]
+    mcp.add_tool(web_fetch_js, name=tool_name, description=tool_desc)
 
     apply_profile(args.profile)
 

@@ -1,7 +1,7 @@
 [project]
-name = "kagi-search-tool"
-version = "0.1.0"
-description = "MCP server exposing Kagi Search and Summarizer APIs for Claude Code"
+name = "claude-web-tools"
+version = "0.2.0"
+description = "MCP server providing web browsing and content extraction tools for Claude"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -14,4 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-kagi-mcp = "server:main"
+claude-web-tools = "server:main"
+
+[tool.uv]
+package = true

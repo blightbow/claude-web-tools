@@ -1,16 +1,19 @@
-# Kagi MCP Server
+# Claude Web Tools
 
-MCP server exposing Kagi Search and Summarizer APIs for Claude clients.
+MCP server providing web browsing and content extraction tools for Claude.
 
 ## Tools
 
+### Kagi Integration
 - **search** - Search the web using Kagi's curated, SEO-resistant index
 - **summarize** - Summarize URLs or text (supports PDFs, YouTube, audio)
-- **web_fetch_js** - Fetch JavaScript-rendered web content with full browser emulation
+
+### Browser Tools
+- **WebFetchJS** / **web_fetch_js** - Fetch JavaScript-rendered web content with full browser emulation (name varies by profile)
 
 ### web_fetch_js Capabilities
 
-Renders pages using a headless WebKit browser, enabling access to content that requires JavaScript execution:
+Renders pages using a headless browser, enabling access to content that requires JavaScript execution:
 
 - **JS-heavy sites** - SPAs, React/Vue/Angular apps, dynamically loaded content
 - **Live app frameworks** - Automatic detection of Gradio and Streamlit apps with accelerated loading (avoids networkidle timeouts)
@@ -34,7 +37,7 @@ result = web_fetch_js(
 
 ## Setup
 
-### API Key
+### Kagi API Key (for search/summarize tools)
 
 Set your Kagi API key via environment variable or config file:
 
@@ -51,14 +54,17 @@ Get your API key at https://kagi.com/settings?p=api
 
 ### Browser Engine (for web_fetch_js)
 
-The `web_fetch_js` tool requires a Playwright browser engine. Install one or both:
+The `web_fetch_js` tool requires a Playwright browser engine. Install one or more:
 
 ```bash
 # WebKit (lightweight, preferred when available)
-playwright install webkit
+uv run playwright install webkit
 
 # Chromium (broader compatibility, larger download)
-playwright install chromium
+uv run playwright install chromium
+
+# Firefox (alternative option)
+uv run playwright install firefox
 ```
 
 **Browser selection logic:**
@@ -83,9 +89,9 @@ Add to your `.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "kagi": {
+    "claude-web-tools": {
       "command": "uv",
-      "args": ["--directory", "/path/to/kagi_search_tool", "run", "kagi-mcp"]
+      "args": ["--directory", "/path/to/claude-web-tools", "run", "claude-web-tools"]
     }
   }
 }
@@ -98,9 +104,9 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "kagi": {
+    "claude-web-tools": {
       "command": "uv",
-      "args": ["--directory", "/path/to/kagi_search_tool", "run", "kagi-mcp", "--profile", "desktop"]
+      "args": ["--directory", "/path/to/claude-web-tools", "run", "claude-web-tools", "--profile", "desktop"]
     }
   }
 }
@@ -108,27 +114,27 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ## Profile Options
 
-The `--profile` argument adjusts tool descriptions for the target client:
+The `--profile` argument adjusts tool names and descriptions for the target client:
 
-| Profile | Target | Built-in tools referenced |
-|---------|--------|---------------------------|
-| `code` (default) | Claude Code | `WebSearch`, `WebFetch` |
-| `desktop` | Claude Desktop | `web_search`, `web_fetch` |
+| Profile | Target | Tool Naming | Built-in tools referenced |
+|---------|--------|-------------|---------------------------|
+| `code` (default) | Claude Code | `WebFetchJS` | `WebSearch`, `WebFetch` |
+| `desktop` | Claude Desktop | `web_fetch_js` | `web_search`, `web_fetch` |
 
-Both profiles position Kagi tools as fallbacks for when built-in tools return poor results.
+Tool names align with each client's naming conventions for self-documenting behavior.
 
 ## Usage
 
 ```bash
 # Default (Claude Code profile)
-kagi-mcp
+claude-web-tools
 
 # Explicit Claude Code profile
-kagi-mcp --profile code
+claude-web-tools --profile code
 
 # Claude Desktop profile
-kagi-mcp --profile desktop
+claude-web-tools --profile desktop
 
 # Show help
-kagi-mcp --help
+claude-web-tools --help
 ```
