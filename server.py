@@ -1,4 +1,4 @@
-"""Kagi Search MCP Server - Exposes Kagi Search and Summarizer APIs for Claude Code."""
+"""Claude Web Tools MCP Server - Web browsing and content extraction tools for Claude."""
 
 import argparse
 import asyncio
@@ -107,6 +107,8 @@ CONFIG_PATH = Path.home() / ".config" / "kagi" / "api_key"
 # code profile: PascalCase (WebSearch, WebFetch, WebFetchJS)
 # desktop profile: snake_case (web_search, web_fetch, web_fetch_js)
 TOOL_NAMES = {
+    "search": {"code": "KagiSearch", "desktop": "kagi_search"},
+    "summarize": {"code": "KagiSummarize", "desktop": "kagi_summarize"},
     "web_fetch_js": {"code": "WebFetchJS", "desktop": "web_fetch_js"},
 }
 
@@ -209,7 +211,6 @@ def get_client() -> Optional[KagiClient]:
     return KagiClient(api_key=api_key)
 
 
-@mcp.tool()
 async def search(query: str, limit: int = 5) -> str:
     """Search the web using Kagi's curated search index.
 
@@ -276,7 +277,6 @@ async def search(query: str, limit: int = 5) -> str:
     return "\n".join(output_parts)
 
 
-@mcp.tool()
 async def summarize(
     url: Optional[str] = None,
     text: Optional[str] = None,
@@ -912,12 +912,16 @@ def main():
     )
     args = parser.parse_args()
 
-    # Register web_fetch_js with profile-specific name
-    tool_name = TOOL_NAMES["web_fetch_js"][args.profile]
-    tool_desc = TOOL_DESCRIPTIONS["web_fetch_js"][args.profile]
-    mcp.add_tool(web_fetch_js, name=tool_name, description=tool_desc)
-
-    apply_profile(args.profile)
+    # Register tools with profile-specific names
+    tools = [
+        ("search", search),
+        ("summarize", summarize),
+        ("web_fetch_js", web_fetch_js),
+    ]
+    for internal_name, func in tools:
+        name = TOOL_NAMES[internal_name][args.profile]
+        desc = TOOL_DESCRIPTIONS[internal_name][args.profile]
+        mcp.add_tool(func, name=name, description=desc)
 
     # Register desktop-only tools
     if args.profile == "desktop":

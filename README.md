@@ -4,12 +4,14 @@ MCP server providing web browsing and content extraction tools for Claude.
 
 ## Tools
 
+All tool names vary by profile (see [Profile Options](#profile-options)).
+
 ### Kagi Integration
-- **search** - Search the web using Kagi's curated, SEO-resistant index
-- **summarize** - Summarize URLs or text (supports PDFs, YouTube, audio)
+- **KagiSearch** / **kagi_search** - Search the web using Kagi's curated, SEO-resistant index
+- **KagiSummarize** / **kagi_summarize** - Summarize URLs or text (supports PDFs, YouTube, audio)
 
 ### Browser Tools
-- **WebFetchJS** / **web_fetch_js** - Fetch JavaScript-rendered web content with full browser emulation (name varies by profile)
+- **WebFetchJS** / **web_fetch_js** - Fetch JavaScript-rendered web content with full browser emulation
 
 ### web_fetch_js Capabilities
 
@@ -116,10 +118,10 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 The `--profile` argument adjusts tool names and descriptions for the target client:
 
-| Profile | Target | Tool Naming | Built-in tools referenced |
-|---------|--------|-------------|---------------------------|
-| `desktop` (default) | Claude Desktop | `web_fetch_js` | `web_search`, `web_fetch` |
-| `code` | Claude Code | `WebFetchJS` | `WebSearch`, `WebFetch` |
+| Profile | Target | Tool Names |
+|---------|--------|------------|
+| `desktop` (default) | Claude Desktop | `kagi_search`, `kagi_summarize`, `web_fetch_js` |
+| `code` | Claude Code | `KagiSearch`, `KagiSummarize`, `WebFetchJS` |
 
 The `desktop` profile (snake_case) is the default as it aligns with MCP ecosystem conventions. Claude Code's PascalCase naming is the exception, not the norm.
 
