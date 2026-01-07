@@ -91,7 +91,7 @@ Add to your `.mcp.json`:
   "mcpServers": {
     "claude-web-tools": {
       "command": "uv",
-      "args": ["--directory", "/path/to/claude-web-tools", "run", "claude-web-tools"]
+      "args": ["--directory", "/path/to/claude-web-tools", "run", "claude-web-tools", "--profile", "code"]
     }
   }
 }
@@ -118,23 +118,20 @@ The `--profile` argument adjusts tool names and descriptions for the target clie
 
 | Profile | Target | Tool Naming | Built-in tools referenced |
 |---------|--------|-------------|---------------------------|
-| `code` (default) | Claude Code | `WebFetchJS` | `WebSearch`, `WebFetch` |
-| `desktop` | Claude Desktop | `web_fetch_js` | `web_search`, `web_fetch` |
+| `desktop` (default) | Claude Desktop | `web_fetch_js` | `web_search`, `web_fetch` |
+| `code` | Claude Code | `WebFetchJS` | `WebSearch`, `WebFetch` |
 
-Tool names align with each client's naming conventions for self-documenting behavior.
+The `desktop` profile (snake_case) is the default as it aligns with MCP ecosystem conventions. Claude Code's PascalCase naming is the exception, not the norm.
 
 ## Usage
 
 ```bash
-# Default (Claude Code profile)
-claude-web-tools
+# Default (desktop profile, snake_case naming)
+uv run claude-web-tools
 
-# Explicit Claude Code profile
-claude-web-tools --profile code
-
-# Claude Desktop profile
-claude-web-tools --profile desktop
+# Claude Code profile (PascalCase naming)
+uv run claude-web-tools --profile code
 
 # Show help
-claude-web-tools --help
+uv run claude-web-tools --help
 ```

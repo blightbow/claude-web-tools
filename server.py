@@ -907,8 +907,8 @@ def main():
     parser.add_argument(
         "--profile",
         choices=["code", "desktop"],
-        default="code",
-        help="Target client profile (default: code)",
+        default="desktop",
+        help="Target client profile (default: desktop)",
     )
     args = parser.parse_args()
 
