@@ -56,7 +56,7 @@ def _detect_playwright_browser(playwright) -> tuple[str, str]:
     Priority:
     1. PLAYWRIGHT_BROWSER env var override (webkit, chromium, firefox)
     2. If only one browser installed, use it
-    3. If multiple available, prefer webkit (specialized) over chromium (ubiquitous)
+    3. If multiple available, prefer by footprint: webkit > firefox > chromium
     4. Error if no browser found
 
     Args:
@@ -88,8 +88,8 @@ def _detect_playwright_browser(playwright) -> tuple[str, str]:
     if len(available) == 1:
         return (available[0], browser_info[available[0]][0])
 
-    # Multiple browsers available - prefer webkit (specialized), then chromium (ubiquitous)
-    for preferred in ("webkit", "chromium", "firefox"):
+    # Multiple browsers available - prefer by footprint: webkit > firefox > chromium
+    for preferred in ("webkit", "firefox", "chromium"):
         if preferred in available:
             return (preferred, browser_info[preferred][0])
 
