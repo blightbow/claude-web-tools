@@ -17,15 +17,19 @@ _REAL_FETCH_CHAPTERS = _yt_module._fetch_video_chapters_sync
 
 @pytest.fixture(autouse=True)
 def _clear_transcript_cache():
-    """Reset the module-level transcript cache between tests.
+    """Reset the module-level transcript and yt-dlp-info caches between tests.
 
     Without this, fake-fetch tests using the same URL would silently
     cache-hit the entry created by an earlier test, never invoking the
-    monkeypatched fetcher.
+    monkeypatched fetcher. The yt-dlp-info cache memoizes the full
+    extract_info dict and is shared across the video / chapter / fallback
+    paths; clearing it keeps every test's mock assumptions clean.
     """
     _yt_module._transcript_cache.clear()
+    _yt_module._yt_info_cache.clear()
     yield
     _yt_module._transcript_cache.clear()
+    _yt_module._yt_info_cache.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -1958,6 +1962,98 @@ class TestFetchVideoChaptersSync:
             raise RuntimeError("yt-dlp blew up")
         monkeypatch.setattr(_yt_module, "_extract_video_info_sync", _boom)
         assert _REAL_FETCH_CHAPTERS("vid") == []
+
+
+class TestYtDlpInfoCache:
+    @pytest.mark.asyncio
+    async def test_video_then_transcript_shares_extract(self, monkeypatch):
+        """A video action followed by transcript on the same URL should
+        trigger only ONE yt-dlp extract_info call. The chapter fetch on
+        the transcript path reuses the cached info dict.
+        """
+        # Patch the sanitized-info entry in the singleton's extract path.
+        # We can't easily mock _extract_video_info_sync because that's the
+        # function under test; instead, mock the underlying ydl methods.
+        info = {
+            "id": "vid",
+            "title": "Test",
+            "description": "Desc",
+            "duration": 60.0,
+            "upload_date": "20260101",
+            "channel": "Chan",
+            "channel_id": "UCx",
+            "channel_url": "https://example",
+            "subtitles": {},
+            "automatic_captions": {},
+            "chapters": [
+                {"start_time": 0.0, "end_time": 30.0, "title": "A"},
+            ],
+        }
+        call_count = {"n": 0}
+
+        class _CountingYdl:
+            def extract_info(self, url, download=False):
+                del url, download
+                call_count["n"] += 1
+                return info
+
+            def sanitize_info(self, raw):
+                return raw
+
+        # Patch the singleton getter to return a counting fake
+        monkeypatch.setattr(_yt_module, "_get_ydl_video", lambda: _CountingYdl())
+
+        # Also stub the transcript-api fetch so we don't hit the network
+        def fake_transcript(video_id, languages):
+            del video_id, languages
+            return _FakeFetchedTranscript(_ZOO_SNIPPETS, "en", is_generated=False)
+        monkeypatch.setattr(_yt_module, "_fetch_transcript_sync", fake_transcript)
+
+        # First call: video — should miss cache and fetch once
+        await youtube(
+            action="video",
+            url="https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        )
+        assert call_count["n"] == 1
+
+        # Second call: transcript on the SAME URL. The chapter fetch
+        # should hit the cached info dict, not re-extract.
+        await youtube(
+            action="transcript",
+            url="https://www.youtube.com/watch?v=jNQXAC9IVRw",
+        )
+        assert call_count["n"] == 1, (
+            f"transcript triggered an extra extract_info "
+            f"(total calls: {call_count['n']})"
+        )
+
+    @pytest.mark.asyncio
+    async def test_cache_lru_eviction(self, monkeypatch):
+        """Cache evicts oldest entry when capacity is exceeded."""
+        # Stub the underlying extract so each URL produces a distinct dict
+        class _UrlYdl:
+            def extract_info(self, url, download=False):
+                del download
+                return {"id": url, "title": f"Title for {url}"}
+
+            def sanitize_info(self, raw):
+                return raw
+
+        monkeypatch.setattr(_yt_module, "_get_ydl_video", lambda: _UrlYdl())
+
+        # Reach into the module-level cap for the assertion
+        cap = _yt_module._YT_INFO_CACHE_MAX
+
+        # Populate cap+1 distinct URLs; the oldest should evict
+        for i in range(cap + 1):
+            _yt_module._extract_video_info_sync(f"https://example.com/{i}")
+
+        cache = _yt_module._yt_info_cache
+        assert len(cache) == cap
+        # Oldest entry (i=0) evicted
+        assert "https://example.com/0" not in cache
+        # Most recent entry retained
+        assert f"https://example.com/{cap}" in cache
 
 
 class TestChaptersInTranscriptResponse:

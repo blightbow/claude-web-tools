@@ -20,6 +20,7 @@ timestamps), ``none`` (flat text, no timing), and ``structured`` (YAML).
 import asyncio
 import logging
 import re
+import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, Optional
@@ -384,17 +385,21 @@ def _format_comment_thread(comments: list[dict], target_id: str) -> str:
 
 
 async def _video(url: str) -> str:
-    """Fetch metadata + description for a single YouTube video URL."""
-    ydl = _get_ydl_video()
+    """Fetch metadata + description for a single YouTube video URL.
+
+    Routes through ``_extract_video_info_sync``'s shared LRU cache so a
+    subsequent ``transcript`` action on the same URL (which fetches
+    chapters via the same code path) doesn't trigger a second
+    Innertube round trip for the same info dict.
+    """
     try:
-        info = await asyncio.to_thread(ydl.extract_info, url, download=False)
+        info = await asyncio.to_thread(_extract_video_info_sync, url)
     except Exception as exc:
         return _map_yt_dlp_error(exc)
 
     if info is None:
         return f"Error: yt-dlp returned no metadata for {url}"
 
-    info = ydl.sanitize_info(info)
     if not isinstance(info, dict):
         return f"Error: Unexpected yt-dlp response shape for {url}"
 
@@ -1290,16 +1295,48 @@ class _FallbackTranscript:
     is_generated: bool
 
 
+# Bounded LRU cache for yt-dlp video-info dicts. The same URL can be
+# extracted by several action paths (``video`` action, transcript chapter
+# fetch, transcript fallback subtitle lookup); without this layer each
+# would trigger its own Innertube round trip. Each info dict can be
+# multi-megabyte (formats, subtitles, thumbnails), so the cap is small.
+# Lock is a threading.Lock rather than asyncio.Lock because callers
+# invoke ``_extract_video_info_sync`` via ``asyncio.to_thread`` (sync
+# context inside a worker thread).
+_YT_INFO_CACHE_MAX = 4
+_yt_info_cache: OrderedDict[str, Any] = OrderedDict()
+_yt_info_lock = threading.Lock()
+
+
 def _extract_video_info_sync(url: str) -> Any:
     """Fetch full video info via the video-mode YoutubeDL singleton.
 
+    Cached + serialized. Concurrent callers requesting the same URL
+    serialize on the global lock and the second one reads from the
+    bounded LRU cache rather than re-hitting Innertube. The lock also
+    serves as a poor man's thread-safety guard for the YoutubeDL
+    singleton, which yt-dlp does not document as concurrent-safe.
+
     Captures subtitle / automatic_caption URLs; reuse of the singleton
     means the PoToken cache and JS player solve carry across the
-    ``video`` and ``transcript`` fallback paths on the same video.
+    ``video`` action, the chapter fetch, and the transcript fallback
+    paths on the same video.
     """
-    ydl = _get_ydl_video()
-    info = ydl.extract_info(url, download=False)
-    return ydl.sanitize_info(info)
+    with _yt_info_lock:
+        if url in _yt_info_cache:
+            _yt_info_cache.move_to_end(url)
+            return _yt_info_cache[url]
+
+        ydl = _get_ydl_video()
+        raw = ydl.extract_info(url, download=False)
+        if raw is None:
+            return None
+        info = ydl.sanitize_info(raw)
+
+        _yt_info_cache[url] = info
+        while len(_yt_info_cache) > _YT_INFO_CACHE_MAX:
+            _yt_info_cache.popitem(last=False)
+        return info
 
 
 def _pick_caption_track(
