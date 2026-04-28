@@ -89,6 +89,13 @@ GLYPHS: list[Glyph] = [
     # after the Wiki Wiki Shuttle at Honolulu airport. Shaka ("hang loose")
     # is a nod to those Hawaiian roots.
     Glyph("mediawiki", 0x1F919, "NotoEmoji-Regular.ttf",       "🤙", "CALL ME HAND (SHAKA)"),
+    # YouTube tool: canonical "play" from the media-controls block, paired
+    # with NEXT TRACK below so both YouTube icons live in the same family
+    # (Miscellaneous Technical, U+23E0–U+23FA) rather than mixing the
+    # generic Geometric Shapes ▶ with a media-controls ⏭.
+    Glyph("youtube",   0x23F5, "NotoSansSymbols2-Regular.ttf", "⏵", "BLACK MEDIUM RIGHT-POINTING TRIANGLE"),
+    # YouTube comments: "the video is done, here's what's next."
+    Glyph("ytcomments", 0x23ED, "NotoSansSymbols2-Regular.ttf", "⏭", "NEXT TRACK BUTTON"),
 ]
 
 

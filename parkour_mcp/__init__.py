@@ -50,6 +50,8 @@ _ICON_FILES = {
     "packages": "packages",         # ⬡  U+2B21 WHITE HEXAGON (NotoSansMath)
     "discourse": "discourse",       # 💬 U+1F4AC SPEECH BALLOON (NotoEmoji)
     "mediawiki": "mediawiki",       # 🤙 U+1F919 SHAKA — "wiki" is Hawaiian (NotoEmoji)
+    "youtube": "youtube",           # ⏵  U+23F5 MEDIUM RIGHT-POINTING TRIANGLE — play (NotoSansSymbols2)
+    "youtube_comments": "ytcomments", # ⏭  U+23ED NEXT TRACK BUTTON — past the video (NotoSansSymbols2)
 }
 _SERVER_ICON_FILE = "server"        # ∮  U+222E CONTOUR INTEGRAL (NotoSansMath)
 
