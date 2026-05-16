@@ -429,6 +429,15 @@ class _PageCache:
             "entries": entries,
         }
 
+    def __contains__(self, url: object) -> bool:
+        """Membership test with no LRU side effects (unlike ``get``).
+
+        The tip-emission oracle — "has this URL been fetched before?" —
+        must consult the cache without promoting a probation entry or
+        refreshing protected LRU order.
+        """
+        return url in self._protected or url in self._probation
+
     def get(self, url: str, renderer: Optional[str] = None) -> Optional[_CacheEntry]:
         """Return the cached entry for *url*, or None on miss.
 

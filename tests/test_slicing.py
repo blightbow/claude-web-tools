@@ -224,6 +224,17 @@ class TestPageCache:
         assert "https://a.com" not in cache._probation
         assert "https://a.com" in cache._protected
 
+    def test_contains_does_not_promote(self):
+        """`in` membership must not promote a probation entry (unlike get)."""
+        from parkour_mcp._pipeline import _PageCache
+        cache = _PageCache(max_entries=3)
+        cache.store("https://a.com", "A", "# A")
+        assert "https://a.com" in cache
+        # Membership check left it in probation — no LRU side effect.
+        assert "https://a.com" in cache._probation
+        assert "https://a.com" not in cache._protected
+        assert "https://missing.com" not in cache
+
     def test_eviction_prefers_probation(self):
         """Probation entries are evicted before protected entries."""
         from parkour_mcp._pipeline import _PageCache

@@ -416,6 +416,12 @@ async def web_fetch_direct(
     except Exception:
         pass
 
+    # Cold blind full-page fetch: the agent pulled a whole page it has
+    # never structurally inspected.  Surface the scout-with-sections
+    # lesson once per session.
+    if not section_names and not want_slicing and url not in _page_cache:
+        fm_entries.set_tip("webfetchsections_scout")
+
     output = _process_markdown_sections(
         markdown_content, section_names, max_tokens, fm_entries,
         title=title, cache_url=url, renderer="direct",

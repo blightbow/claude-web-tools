@@ -896,7 +896,17 @@ def _filter_markdown_by_sections(
 # The ledger is process-lifetime by design and resets only on server
 # restart.  Tests clear it per-test via an autouse fixture in conftest.py.
 # ---------------------------------------------------------------------------
-_TIPS: dict[str, str] = {}
+#
+# Registry values may carry ``{tool_key}`` placeholders (e.g.
+# ``{web_fetch_sections}``); these resolve to the active profile's display
+# name, a launch-time constant, so the rendered tip is still deterministic
+# per process — the property the fire-once ledger relies on.
+_TIPS: dict[str, str] = {
+    "webfetchsections_scout": (
+        "{web_fetch_sections} returns the page's heading layout; use it to "
+        "scout before committing to a content fetch"
+    ),
+}
 
 _FIRED_TIPS: set[str] = set()
 
@@ -906,11 +916,30 @@ def _tip_url_scope(url: str) -> str:
     return hashlib.sha1(url.encode("utf-8", "replace")).hexdigest()[:12]
 
 
+def _render_tip_text(template: str) -> Optional[str]:
+    """Resolve ``{tool_key}`` placeholders in a tip template to display names.
+
+    Returns None if a placeholder names an unknown tool key (or tool names
+    are not yet initialized), so a malformed registry entry drops the tip
+    rather than crashing a tool response.
+    """
+    from string import Formatter
+
+    from .common import tool_name
+
+    try:
+        fields = {fn for _, fn, _, _ in Formatter().parse(template) if fn}
+        return template.format(**{f: tool_name(f) for f in fields})
+    except (AssertionError, KeyError, ValueError):
+        return None
+
+
 def _resolve_tip(ledger_id: str) -> Optional[str]:
     """Resolve a tip ledger-ID to its text, or None if it should not render.
 
     Called only by ``_build_frontmatter``.  Returns None when the tip has
-    already fired this process or when the base ID is not registered.
+    already fired this process, when the base ID is not registered, or when
+    the registered template fails placeholder resolution.
 
     Mutates ``_FIRED_TIPS``: a tip is marked spent the moment it renders,
     so the fire-once guarantee is keyed to actual output rather than to the
@@ -920,7 +949,10 @@ def _resolve_tip(ledger_id: str) -> Optional[str]:
     if ledger_id in _FIRED_TIPS:
         return None
     base_id = ledger_id.split("::", 1)[0]
-    text = _TIPS.get(base_id)
+    template = _TIPS.get(base_id)
+    if template is None:
+        return None
+    text = _render_tip_text(template)
     if text is None:
         return None
     _FIRED_TIPS.add(ledger_id)

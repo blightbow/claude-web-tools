@@ -4,6 +4,7 @@ import httpx
 import pytest
 import respx
 
+from parkour_mcp import markdown
 from parkour_mcp.fetch_direct import (
     web_fetch_direct,
     web_fetch_sections,
@@ -1337,3 +1338,54 @@ class TestWebFetchSections:
         # Sanity-check: a recognizable top-level heading made it into the tree.
         _, fence = split_output(result)
         assert "HTML" in fence
+
+
+class TestWebFetchDirectCanaryTip:
+    """The webfetchsections_scout tip on cold blind full-page fetches."""
+
+    @staticmethod
+    def _mock(url):
+        respx.get(url).mock(
+            return_value=httpx.Response(
+                200, text=SAMPLE_HTML_PAGE,
+                headers={"content-type": "text/html"},
+            )
+        )
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_cold_blind_fetch_emits_scout_tip(self):
+        self._mock("https://example.com/page")
+        result = await web_fetch_direct("https://example.com/page")
+        fm, _ = split_output(result)
+        assert "tip: WebFetchSections returns the page's heading layout;" in fm
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_scout_tip_fires_once_per_session(self):
+        self._mock("https://example.com/a")
+        self._mock("https://example.com/b")
+        first = await web_fetch_direct("https://example.com/a")
+        second = await web_fetch_direct("https://example.com/b")
+        assert "tip:" in split_output(first)[0]
+        assert "tip:" not in split_output(second)[0]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_section_targeted_fetch_suppresses_scout_tip(self):
+        self._mock("https://example.com/page")
+        result = await web_fetch_direct(
+            "https://example.com/page", section="Second Section"
+        )
+        assert "tip:" not in split_output(result)[0]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_cached_url_suppresses_scout_tip(self):
+        self._mock("https://example.com/page")
+        # First fetch primes the cache and fires the tip.
+        await web_fetch_direct("https://example.com/page")
+        # Re-arm the ledger so only the cache oracle can suppress the re-fire.
+        markdown._FIRED_TIPS.clear()
+        again = await web_fetch_direct("https://example.com/page")
+        assert "tip:" not in split_output(again)[0]

@@ -107,3 +107,32 @@ def test_ledger_reset_fixture_isolates_tests():
     fm = FMEntries({})
     fm.set_tip("demo_tip")
     assert "tip: Demo tip text." in _build_frontmatter(fm)
+
+
+def test_tip_placeholder_resolves_tool_name(monkeypatch):
+    # conftest initializes the "code" profile, so {web_fetch_sections}
+    # resolves to the PascalCase display name.
+    monkeypatch.setitem(
+        markdown._TIPS, "templated_tip", "Try {web_fetch_sections} first."
+    )
+    fm = FMEntries({})
+    fm.set_tip("templated_tip")
+    assert "tip: Try WebFetchSections first." in _build_frontmatter(fm)
+
+
+def test_tip_with_unknown_placeholder_renders_nothing(monkeypatch):
+    # An unresolvable placeholder drops the tip rather than crashing.
+    monkeypatch.setitem(
+        markdown._TIPS, "bad_tip", "Use {not_a_real_tool} now."
+    )
+    fm = FMEntries({})
+    fm.set_tip("bad_tip")
+    assert "tip:" not in _build_frontmatter(fm)
+
+
+def test_canary_tip_is_registered_and_resolves():
+    # The shipped webfetchsections_scout entry resolves cleanly.
+    fm = FMEntries({})
+    fm.set_tip("webfetchsections_scout")
+    out = _build_frontmatter(fm)
+    assert "tip: WebFetchSections returns the page's heading layout;" in out
