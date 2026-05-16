@@ -628,8 +628,13 @@ def main():
             annotations = ToolAnnotations(destructiveHint=True)
         else:
             annotations = ToolAnnotations(readOnlyHint=True)
+        # structured_output=False suppresses the SDK's auto-wrap of `str`
+        # returns into an outputSchema + structuredContent {"result": ...}.
+        # Tools already return purpose-built frontmatter-first markdown; the
+        # structured channel would only duplicate it on the wire (see #9).
         mcp.add_tool(func, name=name, title=title, description=desc,
-                     icons=icons, annotations=annotations)
+                     icons=icons, annotations=annotations,
+                     structured_output=False)
 
     # MCP resource: read-only shelf summary
     @mcp.resource("research://shelf")
