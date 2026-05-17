@@ -244,7 +244,6 @@ async def _render_js(
     source_url: str,
     fragment_warning: Optional[str],
     section_names: Optional[list[str]],
-    want_slicing: bool,
     search: Optional[str],
     slices: Optional[Union[int, list[int]]],
     slices_list: list[int],
@@ -265,6 +264,7 @@ async def _render_js(
     without evidence the page needs one; it emits a one-time teaching tip.
     """
     timeout = _PLAYWRIGHT_TIMEOUT_MS
+    want_slicing = search is not None or slices is not None
 
     # --- Content-type pre-check (skip browser for non-HTML) ---
     if not actions:

@@ -335,7 +335,7 @@ async def web_fetch_direct(
         from .fetch_js import _render_js
         return await _render_js(
             url, source_url, fragment_warning, section_names,
-            want_slicing, search, slices, slices_list,
+            search, slices, slices_list,
             max_tokens=max_tokens, actions=actions, max_elements=max_elements,
             premature=premature,
         )
