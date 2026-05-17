@@ -11,6 +11,7 @@ from .common import (
     _MAX_RESPONSE_BYTES,
     _MAX_SECTIONS_RESPONSE_BYTES,
     ResponseTooLarge,
+    _classify_content_type,
     check_url_ssrf,
     guarded_fetch,
     tool_name,
@@ -394,21 +395,16 @@ async def web_fetch_direct(
 
     # Check content type
     content_type = response.headers.get("content-type", "")
-    is_html = "text/html" in content_type or "application/xhtml" in content_type
-    is_plain = "text/plain" in content_type
-    is_json = "application/json" in content_type or "text/json" in content_type
-    is_xml = (
-        "application/xml" in content_type or "text/xml" in content_type
-    ) and not is_html
+    content_kind = _classify_content_type(content_type)
 
-    if not any([is_html, is_plain, is_json, is_xml]):
+    if content_kind is None:
         return (
             f"Error: Unsupported content type '{content_type}'. "
             f"Supported: text/html, text/plain, application/json, application/xml."
         )
 
     # --- Non-HTML content ---
-    if is_plain or is_json or is_xml:
+    if content_kind != "html":
         if want_slicing:
             return "Error: search/slices requires HTML content."
         text = response.text.strip()
@@ -416,7 +412,7 @@ async def web_fetch_direct(
             return f"Error: No content extracted from {url}"
 
         title = url.rsplit("/", 1)[-1] or "Untitled"
-        ct_label = "json" if is_json else ("xml" if is_xml else "plain text")
+        ct_label = content_kind
 
         text, truncation_hint = _apply_hard_truncation(
             text, max_tokens,
@@ -904,9 +900,7 @@ async def web_fetch_sections(url: str, slice: int = 0) -> str:
         pass
 
     content_type = response.headers.get("content-type", "")
-    is_html = "text/html" in content_type or "application/xhtml" in content_type
-
-    if not is_html:
+    if _classify_content_type(content_type) != "html":
         return f"Error: Section listing requires HTML content (got '{content_type}')."
 
     title, markdown_content = html_to_markdown(response.text)

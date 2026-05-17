@@ -16,7 +16,7 @@ import httpx
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
-from .common import _FETCH_HEADERS
+from .common import _FETCH_HEADERS, _classify_content_type
 from .markdown import (
     FMEntries,
     html_to_markdown, _build_frontmatter, _apply_hard_truncation,
@@ -254,15 +254,11 @@ async def _render_js(
     max_elements: int,
     premature: bool = False,
 ) -> str:
-    """Render a page through a headless browser, after the caller's fast paths.
+    """Render *url* through a headless browser and run the shared pipeline.
 
-    Invoked by ``web_fetch_direct`` when ``requires_js`` is set or an
-    ``actions`` chain is supplied.  The caller has already resolved the URL
-    fragment, run the SSRF check, validated parameters, and exhausted the
-    API-backed fast paths, so this handles only the generic browser-render
-    fallback: a content-type precheck (non-HTML is returned raw, no
-    browser), the headless render with optional ReAct ``actions``, and the
-    shared section/slice pipeline.
+    Handles the three steps that genuinely need a browser: a content-type
+    precheck (non-HTML is returned raw, no browser), the headless render
+    with optional ReAct ``actions``, and the section/slice pipeline.
 
     ``max_elements`` caps the interactive-element appendix; ``0`` omits it.
     ``premature`` is set by the caller when the agent reached for a render
@@ -295,12 +291,9 @@ async def _render_js(
                     pass
 
                 ct = head_resp.headers.get("content-type", "")
-                is_html = "text/html" in ct or "application/xhtml" in ct
-                is_plain = "text/plain" in ct
-                is_json = "application/json" in ct or "text/json" in ct
-                is_xml = ("application/xml" in ct or "text/xml" in ct) and not is_html
+                content_kind = _classify_content_type(ct)
 
-                if not is_html and any([is_plain, is_json, is_xml]):
+                if content_kind is not None and content_kind != "html":
                     get_resp = await client.get(url, headers=_FETCH_HEADERS)
                     get_resp.raise_for_status()
                     text = get_resp.text.strip()
@@ -308,8 +301,7 @@ async def _render_js(
                         return f"Error: No content extracted from {url}"
 
                     title = url.rsplit("/", 1)[-1] or "Untitled"
-                    ct_label = "json" if is_json else ("xml" if is_xml else "plain text")
-                    skip_warning = f"Content-type is {ct_label}; JavaScript rendering was skipped"
+                    skip_warning = f"Content-type is {content_kind}; JavaScript rendering was skipped"
 
                     text, truncation_hint = _apply_hard_truncation(
                         text, max_tokens,
@@ -322,7 +314,7 @@ async def _render_js(
                         "source": source_url,
                         "trust": _TRUST_ADVISORY,
                         "warning": warnings,
-                        "content_type": ct_label,
+                        "content_type": content_kind,
                         "truncated": truncation_hint,
                     })
                     return fm + "\n\n" + _fence_content(text, title=title)

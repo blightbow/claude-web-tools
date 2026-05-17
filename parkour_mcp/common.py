@@ -89,6 +89,24 @@ _LANGUAGE_MAP: dict[str, str] = {
 }
 
 
+def _classify_content_type(content_type: str) -> Optional[str]:
+    """Coarsely classify an HTTP Content-Type.
+
+    Returns ``"html"``, ``"json"``, ``"xml"``, ``"plain text"``, or None
+    for an unsupported type.  XHTML counts as HTML; the priority order
+    means a type is never classified as both XML and HTML.
+    """
+    if "text/html" in content_type or "application/xhtml" in content_type:
+        return "html"
+    if "application/json" in content_type or "text/json" in content_type:
+        return "json"
+    if "application/xml" in content_type or "text/xml" in content_type:
+        return "xml"
+    if "text/plain" in content_type:
+        return "plain text"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Rate limiter
 # ---------------------------------------------------------------------------
