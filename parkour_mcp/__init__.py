@@ -178,6 +178,33 @@ PROFILE_VARS = {
             "bans of data-center subnets, or when web_fetch is rejected with PERMISSIONS_ERROR.\n"
         ),
     },
+    # hermes profile: snake_case (matches Hermes' built-in tool naming). The
+    # sibling-tool placeholders point at Hermes' own web_search / web_extract,
+    # and the description prose drops the Anthropic-proxy framing that only
+    # applies under Claude clients. Consumed by the Hermes plugin entrypoint
+    # (parkour_mcp/hermes_plugin.py), never by the standalone MCP server.
+    "hermes": {
+        "web_search": "web_search",
+        "web_fetch": "web_extract",
+        "fetch_direct": "web_fetch_incisive",
+        "fetch_sections": "web_fetch_sections",
+        "summarize": "kagi_summarize",
+        "mediawiki_tool": "mediawiki",
+        "github_tool": "github",
+        "arxiv_tool": "arxiv",
+        "ietf_tool": "ietf",
+        "semantic_scholar_tool": "semantic_scholar",
+        "shelf_tool": "research_shelf",
+        "youtube_tool": "youtube",
+        "youtube_comments_tool": "youtube_comments",
+        "fetch_direct_when_to_use": (
+            "Unlike web_extract, fetches through the user's device with precise\n"
+            "content extraction and clean first-party APIs instead of summarization.\n"
+            "Use this for a rich content exploring experience that is not subject to 403\n"
+            "bans of data-center subnets, or for extracting specific details that\n"
+            "summarization would discard."
+        ),
+    },
 }
 
 # Tool descriptions — one entry per tool, with {var} placeholders resolved per-profile.
@@ -568,6 +595,23 @@ def _build_description(tool_name: str, profile: str) -> str:
     )
 
 
+def _apply_s2_enrichment() -> None:
+    """Enrich the arxiv / research_shelf descriptions for the Semantic Scholar opt-in.
+
+    Mutates TOOL_DESCRIPTIONS in place. Each entrypoint (the MCP server's
+    main(), the Hermes plugin's register()) calls this at most once, before
+    descriptions are resolved, so the non-idempotent ``+=`` is safe.
+    """
+    TOOL_DESCRIPTIONS["arxiv"] += (
+        "\n\nFor citation counts and cross-references, use SemanticScholar with\n"
+        "ARXIV:<id> after retrieving the arXiv ID."
+    )
+    TOOL_DESCRIPTIONS["research_shelf"] = TOOL_DESCRIPTIONS["research_shelf"].replace(
+        "ArXiv, DOI, or IETF",
+        "ArXiv, SemanticScholar, DOI, or IETF",
+    )
+
+
 def main():
     """Run the MCP server."""
     parser = argparse.ArgumentParser(description="Parkour MCP Server")
@@ -584,14 +628,7 @@ def main():
     # Conditionally enrich descriptions when S2 is opted in
     _s2_on = s2_enabled()
     if _s2_on:
-        TOOL_DESCRIPTIONS["arxiv"] += (
-            "\n\nFor citation counts and cross-references, use SemanticScholar with\n"
-            "ARXIV:<id> after retrieving the arXiv ID."
-        )
-        TOOL_DESCRIPTIONS["research_shelf"] = TOOL_DESCRIPTIONS["research_shelf"].replace(
-            "ArXiv, DOI, or IETF",
-            "ArXiv, SemanticScholar, DOI, or IETF",
-        )
+        _apply_s2_enrichment()
 
     # Register all tools with profile-specific names and descriptions
     tools: list[tuple[str, Callable[..., Any]]] = list(_ALWAYS_ON_TOOLS)
