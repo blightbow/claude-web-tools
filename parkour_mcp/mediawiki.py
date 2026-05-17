@@ -232,7 +232,10 @@ def _extract_citations(html: str) -> list[dict]:
         )
         sources = []
         for citeref_link in citeref_links:
-            target_id = citeref_link["href"].lstrip("#")
+            # BS4 types Tag["href"] as str | AttributeValueList; href is a
+            # single-valued attribute, and the find_all filter above already
+            # proved it is a "#CITEREF"-prefixed str.
+            target_id = citeref_link["href"].lstrip("#")  # ty: ignore[unresolved-attribute]
             resolved = _resolve_citeref_target(soup, target_id)
             if resolved is not None:
                 sources.append(resolved)
